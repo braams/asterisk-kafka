@@ -23,7 +23,7 @@ RUN     ./configure --without-dahdi --with-pjproject-bundled \
         && menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts \
         && make -j$(grep -c ^processor /proc/cpuinfo) \
         && make install && make basic-pbx \
-        && sed -i '$ a load = load res_clioriginate.so' /etc/asterisk/modules.conf
+        && sed -i '$ a load = res_clioriginate.so' /etc/asterisk/modules.conf
 
 
 CMD ["asterisk", "-cvvv"]
