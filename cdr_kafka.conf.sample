@@ -1,0 +1,4 @@
+[general]
+enabled=yes
+brokers=127.0.0.1:9092
+topic=asterisk_cdr
