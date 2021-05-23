@@ -37,11 +37,8 @@
 #include <stdio.h>
 
 #include <librdkafka/rdkafka.h>
-#include "asterisk/channel.h"
 #include "asterisk/cdr.h"
 #include "asterisk/module.h"
-#include "asterisk/utils.h"
-#include "asterisk/manager.h"
 #include "asterisk/config.h"
 #include "asterisk/pbx.h"
 #include "asterisk/json.h"
@@ -50,7 +47,6 @@
 #define CONF_FILE    "cdr_kafka.conf"
 #define DEFAULT_KAFKA_BROKERS "127.0.0.1:9092"
 #define DEFAULT_KAFKA_TOPIC "asterisk-cdr"
-
 
 static const char name[] = "cdr_kafka";
 
@@ -61,36 +57,34 @@ rd_kafka_t *rk;         /* Producer instance handle */
 rd_kafka_conf_t *conf;  /* Temporary configuration object */
 char errstr[512];       /* librdkafka API error reporting buffer */
 
-
-static int connected = 0;
-
-
 AST_RWLOCK_DEFINE_STATIC(config_lock);
-
-static int kafka_put(struct ast_cdr *cdr);
-
 
 static void dr_msg_cb(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaque) {
     if (rkmessage->err)
-        fprintf(stderr, "%% Message delivery failed: %s\n", rd_kafka_err2str(rkmessage->err));
+        ast_log(LOG_ERROR, "Message delivery failed: %s\n", rd_kafka_err2str(rkmessage->err));
     else
-        fprintf(stderr, "%% Message delivered (%zd bytes, partition %d)\n", rkmessage->len, rkmessage->partition);
+        ast_log(LOG_NOTICE, "Message delivered (%zd bytes, partition %"
+    PRId32
+    ")\n",
+            rkmessage->len, rkmessage->partition);
     /* The rkmessage is destroyed automatically by librdkafka */
 }
 
-static void logger(const rd_kafka_t *rk, int level, const char *fac, const char *buf) {
-    ast_log(LOG_ERROR, "RDKAFKA-%i-%s: %s: %s\n", level, fac, rk ? rd_kafka_name(rk) : NULL, buf);
+static void log_cb(const rd_kafka_t *rk, int level, const char *fac, const char *buf) {
+    ast_log(LOG_NOTICE, " %s: %s: %s\n", fac, rk ? rd_kafka_name(rk) : NULL, buf);
 }
 
+static void error_cb(rd_kafka_t *rk, int err, const char *reason, void *opaque) {
+    ast_log(LOG_ERROR, "%s: %s: %s\n", rk ? rd_kafka_name(rk) : NULL, rd_kafka_err2str(err), reason);
+}
 
 static int kafka_connect(void) {
-    /*
- * Create Kafka client configuration place-holder
- */
+
     conf = rd_kafka_conf_new();
 
-
-    rd_kafka_conf_set_log_cb(conf, logger);
+    rd_kafka_conf_set_log_cb(conf, log_cb);
+    rd_kafka_conf_set_dr_msg_cb(conf, dr_msg_cb);
+    rd_kafka_conf_set_error_cb(conf, error_cb);
 
     /* Set bootstrap broker(s) as a comma-separated list of
      * host or host:port (default port 9092).
@@ -102,14 +96,13 @@ static int kafka_connect(void) {
     }
     ast_log(LOG_NOTICE, "rd_kafka_conf_set done");
 
-
     /* Set the delivery report callback.
      * This callback will be called once per message to inform
      * the application if delivery succeeded or failed.
      * See dr_msg_cb() above.
      * The callback is only triggered from rd_kafka_poll() and
      * rd_kafka_flush(). */
-    rd_kafka_conf_set_dr_msg_cb(conf, dr_msg_cb);
+
 
     /*
      * Create producer instance.
@@ -120,7 +113,7 @@ static int kafka_connect(void) {
      */
     rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
     if (!rk) {
-        ast_log(LOG_ERROR, "%% Failed to create new producer: %s\n", errstr);
+        ast_log(LOG_ERROR, "Failed to create new producer: %s\n", errstr);
         return 1;
     }
     ast_log(LOG_NOTICE, "rd_kafka_new done");
@@ -145,7 +138,6 @@ static int load_config(int reload) {
     }
 
     if (!cfg) {
-        /* Standard configuration */
         ast_log(LOG_WARNING, "Failed to load configuration file. Module not activated.\n");
         if (enablecdr) {
             ast_cdr_backend_suspend(name);
@@ -194,7 +186,7 @@ static int load_config(int reload) {
         ast_cdr_backend_suspend(name);
     } else if (newenablecdr) {
         ast_cdr_backend_unsuspend(name);
-        ast_log(LOG_NOTICE, "Added kafka brokers %s with topic %s", kafka_brokers, kafka_topic);
+        ast_log(LOG_NOTICE, "Using kafka brokers %s with topic %s", kafka_brokers, kafka_topic);
     }
     enablecdr = newenablecdr;
 
@@ -215,9 +207,6 @@ static int kafka_put(struct ast_cdr *cdr) {
     if (!enablecdr) {
         return 0;
     }
-//    if (!connected) {
-//        kafka_connect();
-//    }
 
     ast_localtime(&cdr->start, &timeresult, NULL);
     ast_strftime(strStartTime, sizeof(strStartTime), DATE_FORMAT, &timeresult);
@@ -275,15 +264,9 @@ static int kafka_put(struct ast_cdr *cdr) {
         /*
          * Failed to *enqueue* message for producing.
          */
-        fprintf(stderr,
-                "%% Failed to produce to topic %s: %s\n",
-                kafka_topic, rd_kafka_err2str(err));
-
-
+        ast_log(LOG_ERROR, "Failed to produce to topic %s: %s\n", kafka_topic, rd_kafka_err2str(err));
     } else {
-        fprintf(stderr, "%% Enqueued message (%zd bytes) "
-                        "for topic %s\n",
-                strlen(cdr_buffer), kafka_topic);
+        ast_log(LOG_NOTICE, "Enqueued message (%zd bytes) for topic %s\n", strlen(cdr_buffer), kafka_topic);
     }
 
     ast_json_free(cdr_buffer);
@@ -311,17 +294,15 @@ static int unload_module(void) {
     ast_free(kafka_brokers);
     ast_free(kafka_topic);
 
-    fprintf(stderr, "%% Flushing final messages..\n");
+    ast_log(LOG_NOTICE, "Flushing final messages..\n");
     rd_kafka_flush(rk, 10 * 1000 /* wait for max 10 seconds */);
 
     /* If the output queue is still not empty there is an issue
      * with producing messages to the clusters. */
     if (rd_kafka_outq_len(rk) > 0)
-        fprintf(stderr, "%% %d message(s) were not delivered\n",
-                rd_kafka_outq_len(rk));
+        ast_log(LOG_NOTICE, "%d message(s) were not delivered\n", rd_kafka_outq_len(rk));
 
     /* Destroy the producer instance */
-    rd_kafka_conf_destroy(conf);
     rd_kafka_destroy(rk);
     return 0;
 }
@@ -340,7 +321,9 @@ static int load_module(void) {
 }
 
 static int reload(void) {
-    return load_config(1);
+//    return load_config(1);
+    ast_log(LOG_NOTICE, "Reload isn't implemented yet...\n");
+    return -1;
 }
 
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER,"Kafka CDR Backend",
