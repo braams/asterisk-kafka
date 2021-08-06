@@ -31,19 +31,16 @@
  ***/
 
 
-#include "asterisk.h"
-
-#include <time.h>
+#include <asterisk.h>
 #include <stdio.h>
 
 #include <librdkafka/rdkafka.h>
-#include "asterisk/cdr.h"
-#include "asterisk/module.h"
-#include "asterisk/config.h"
-#include "asterisk/pbx.h"
-#include "asterisk/json.h"
+#include <asterisk/cdr.h>
+#include <asterisk/module.h>
+#include <asterisk/config.h>
+#include <asterisk/json.h>
 
-#define DATE_FORMAT    "%Y-%m-%d %T"
+
 #define CONF_FILE    "cdr_kafka.conf"
 #define DEFAULT_KAFKA_BROKERS "127.0.0.1:9092"
 #define DEFAULT_KAFKA_TOPIC "asterisk-cdr"
@@ -303,7 +300,7 @@ static int unload_module(void) {
         ast_log(LOG_NOTICE, "%d message(s) were not delivered\n", rd_kafka_outq_len(rk));
 
     /* Destroy the producer instance */
-    rd_kafka_destroy(rk);
+    rd_kafka_destroy(handle);
     return 0;
 }
 
@@ -321,16 +318,16 @@ static int load_module(void) {
 }
 
 static int reload(void) {
-//    return load_config(1);
+    //    return load_config(1);
     ast_log(LOG_NOTICE, "Reload isn't implemented yet...\n");
     return -1;
 }
 
-AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER,"Kafka CDR Backend",
-    .support_level = AST_MODULE_SUPPORT_CORE,
-    .load = load_module,
-    .unload = unload_module,
-    .reload = reload,
-    .load_pri = AST_MODPRI_CDR_DRIVER,
-    .requires = "cdr",
-);
+AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "Kafka CDR Backend",
+                .support_level = AST_MODULE_SUPPORT_CORE,
+                .load = load_module,
+                .unload = unload_module,
+                .reload = reload,
+                .load_pri = AST_MODPRI_CDR_DRIVER,
+                .requires = "cdr",
+                );
