@@ -1,10 +1,6 @@
-/*
- */
-
 /*!
  * \file
  * \brief Kakfka CDR records.
-
  * This module requires the librdkafka library, avaialble from
  * https://github.com/edenhill/librdkafka
  *
@@ -30,6 +26,8 @@
 	<support_level>core</support_level>
  ***/
 
+#define AST_MODULE_SELF_SYM __internal_cdr_kafka_self
+#define AST_MODULE "cdr_kafka"
 
 #include <asterisk.h>
 #include <stdio.h>
@@ -44,13 +42,15 @@
 #define CONF_FILE    "cdr_kafka.conf"
 #define DEFAULT_KAFKA_BROKERS "127.0.0.1:9092"
 #define DEFAULT_KAFKA_TOPIC "asterisk-cdr"
+#define DEFAULT_DATE_FORMAT    "%Y-%m-%d %T"
 
 static const char name[] = "cdr_kafka";
 
 static int enablecdr = 0;
 static char *kafka_brokers;
 static char *kafka_topic;
-rd_kafka_t *rk;         /* Producer instance handle */
+static char *date_format;
+rd_kafka_t *handle;         /* Producer instance handle */
 rd_kafka_conf_t *conf;  /* Temporary configuration object */
 char errstr[512];       /* librdkafka API error reporting buffer */
 
@@ -60,10 +60,8 @@ static void dr_msg_cb(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void 
     if (rkmessage->err)
         ast_log(LOG_ERROR, "Message delivery failed: %s\n", rd_kafka_err2str(rkmessage->err));
     else
-        ast_log(LOG_NOTICE, "Message delivered (%zd bytes, partition %"
-    PRId32
-    ")\n",
-            rkmessage->len, rkmessage->partition);
+        ast_log(LOG_NOTICE, "Message delivered (%zd bytes, partition %" PRId32 ")\n",
+                rkmessage->len, rkmessage->partition);
     /* The rkmessage is destroyed automatically by librdkafka */
 }
 
@@ -108,8 +106,8 @@ static int kafka_connect(void) {
      *       and the application must not reference it again after
      *       this call.
      */
-    rk = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
-    if (!rk) {
+    handle = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
+    if (!handle) {
         ast_log(LOG_ERROR, "Failed to create new producer: %s\n", errstr);
         return 1;
     }
@@ -152,6 +150,7 @@ static int load_config(int reload) {
     /* Bootstrap the default configuration */
     kafka_brokers = ast_strdup(DEFAULT_KAFKA_BROKERS);
     kafka_topic = ast_strdup(DEFAULT_KAFKA_TOPIC);
+    date_format = ast_strdup(DEFAULT_DATE_FORMAT);
 
     while ((cat = ast_category_browse(cfg, cat))) {
         if (!strcasecmp(cat, "general")) {
@@ -166,6 +165,9 @@ static int load_config(int reload) {
                 } else if (!strcasecmp(v->name, "topic")) {
                     ast_free(kafka_topic);
                     kafka_topic = ast_strdup(v->value);
+                } else if (!strcasecmp(v->name, "dateformat")) {
+                    ast_free(kafka_topic);
+                    date_format = ast_strdup(v->value);
                 }
                 v = v->next;
 
@@ -206,15 +208,15 @@ static int kafka_put(struct ast_cdr *cdr) {
     }
 
     ast_localtime(&cdr->start, &timeresult, NULL);
-    ast_strftime(strStartTime, sizeof(strStartTime), DATE_FORMAT, &timeresult);
+    ast_strftime(strStartTime, sizeof(strStartTime), date_format, &timeresult);
 
     if (cdr->answer.tv_sec) {
         ast_localtime(&cdr->answer, &timeresult, NULL);
-        ast_strftime(strAnswerTime, sizeof(strAnswerTime), DATE_FORMAT, &timeresult);
+        ast_strftime(strAnswerTime, sizeof(strAnswerTime), date_format, &timeresult);
     }
 
     ast_localtime(&cdr->end, &timeresult, NULL);
-    ast_strftime(strEndTime, sizeof(strEndTime), DATE_FORMAT, &timeresult);
+    ast_strftime(strEndTime, sizeof(strEndTime), date_format, &timeresult);
 
     t_cdr_json = ast_json_pack(
             "{s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:s, s:s, s:s, s:s}",
@@ -243,7 +245,7 @@ static int kafka_put(struct ast_cdr *cdr) {
 
     err = rd_kafka_producev(
             /* Producer handle */
-            rk,
+            handle,
             /* Topic name */
             RD_KAFKA_V_TOPIC(kafka_topic),
             /* Make a copy of the payload. */
@@ -279,7 +281,7 @@ static int kafka_put(struct ast_cdr *cdr) {
      * to make sure previously produced messages have their
      * delivery report callback served (and any other callbacks
      * you register). */
-    rd_kafka_poll(rk, 0/*non-blocking*/);
+    rd_kafka_poll(handle, 0/*non-blocking*/);
     return 0;
 }
 
@@ -292,12 +294,12 @@ static int unload_module(void) {
     ast_free(kafka_topic);
 
     ast_log(LOG_NOTICE, "Flushing final messages..\n");
-    rd_kafka_flush(rk, 10 * 1000 /* wait for max 10 seconds */);
+    rd_kafka_flush(handle, 10 * 1000 /* wait for max 10 seconds */);
 
     /* If the output queue is still not empty there is an issue
      * with producing messages to the clusters. */
-    if (rd_kafka_outq_len(rk) > 0)
-        ast_log(LOG_NOTICE, "%d message(s) were not delivered\n", rd_kafka_outq_len(rk));
+    if (rd_kafka_outq_len(handle) > 0)
+        ast_log(LOG_NOTICE, "%d message(s) were not delivered\n", rd_kafka_outq_len(handle));
 
     /* Destroy the producer instance */
     rd_kafka_destroy(handle);
