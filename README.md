@@ -8,6 +8,19 @@ docker build -t kafka-single-node kafka
 
 docker run -it --rm --net=host kafka-single-node
 
+## Build with cmake
+
+mkdir build
+
+cd build
+
+cmake ..
+
+make
+
+make package
+
+
 ## Build and test module 
 
 docker build -t asterisk-kafka-buildenv .
@@ -32,7 +45,6 @@ channel originate Local/2565551100@Main-IVR application NoOp
 
 ## TODO
 * CEL
-* Datetime format
 * Extra user fields
 * Extra librdkafka configuration (https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md) 
 * Compression
