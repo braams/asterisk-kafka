@@ -27,19 +27,23 @@ docker build -t asterisk-kafka-buildenv .
 
 docker run --rm -it --net=host -v "$(pwd):/asterisk-kafka" -w /asterisk-kafka asterisk-kafka-buildenv bash
 
-make
+mkdir build
 
-make install
+cd build
 
-make samples
+cmake ..
+
+make package
+
+dpkg -i asterisk-kafka_*.deb
 
 asterisk -cvvv
 
-module load cdr_kafka.so
+module show like kafka
 
 cdr show status
 
-channel originate Local/2565551100@Main-IVR application NoOp
+channel originate Local/s@demo application NoOp()
 
 !kafkacat -C -b localhost:9092 -t asterisk_cdr -o -1 -e
 
