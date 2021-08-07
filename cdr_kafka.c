@@ -49,7 +49,7 @@ static const char name[] = "cdr_kafka";
 static int enablecdr = 0;
 static char *kafka_brokers;
 static char *kafka_topic;
-static char *date_format;
+static char *dateformat;
 rd_kafka_t *handle;         /* Producer instance handle */
 rd_kafka_conf_t *conf;  /* Temporary configuration object */
 char errstr[512];       /* librdkafka API error reporting buffer */
@@ -150,7 +150,7 @@ static int load_config(int reload) {
     /* Bootstrap the default configuration */
     kafka_brokers = ast_strdup(DEFAULT_KAFKA_BROKERS);
     kafka_topic = ast_strdup(DEFAULT_KAFKA_TOPIC);
-    date_format = ast_strdup(DEFAULT_DATE_FORMAT);
+    dateformat = ast_strdup(DEFAULT_DATE_FORMAT);
 
     while ((cat = ast_category_browse(cfg, cat))) {
         if (!strcasecmp(cat, "general")) {
@@ -166,8 +166,8 @@ static int load_config(int reload) {
                     ast_free(kafka_topic);
                     kafka_topic = ast_strdup(v->value);
                 } else if (!strcasecmp(v->name, "dateformat")) {
-                    ast_free(kafka_topic);
-                    date_format = ast_strdup(v->value);
+                    ast_free(dateformat);
+                    dateformat = ast_strdup(v->value);
                 }
                 v = v->next;
 
@@ -208,15 +208,15 @@ static int kafka_put(struct ast_cdr *cdr) {
     }
 
     ast_localtime(&cdr->start, &timeresult, NULL);
-    ast_strftime(strStartTime, sizeof(strStartTime), date_format, &timeresult);
+    ast_strftime(strStartTime, sizeof(strStartTime), dateformat, &timeresult);
 
     if (cdr->answer.tv_sec) {
         ast_localtime(&cdr->answer, &timeresult, NULL);
-        ast_strftime(strAnswerTime, sizeof(strAnswerTime), date_format, &timeresult);
+        ast_strftime(strAnswerTime, sizeof(strAnswerTime), dateformat, &timeresult);
     }
 
     ast_localtime(&cdr->end, &timeresult, NULL);
-    ast_strftime(strEndTime, sizeof(strEndTime), date_format, &timeresult);
+    ast_strftime(strEndTime, sizeof(strEndTime), dateformat, &timeresult);
 
     t_cdr_json = ast_json_pack(
             "{s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:s, s:i, s:i, s:s, s:s, s:s, s:s}",
