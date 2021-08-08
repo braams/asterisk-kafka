@@ -21,21 +21,13 @@ make
 make package
 
 
-## Build and test module 
+## Test module 
 
 docker build -t asterisk-kafka-buildenv .
 
 docker run --rm -it --net=host -v "$(pwd):/asterisk-kafka" -w /asterisk-kafka asterisk-kafka-buildenv bash
 
-mkdir build
-
-cd build
-
-cmake ..
-
-make package
-
-dpkg -i asterisk-kafka_*.deb
+dpkg -i build/asterisk-kafka_*.deb
 
 asterisk -cvvv
 
