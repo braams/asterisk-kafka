@@ -326,10 +326,10 @@ static int reload(void) {
 }
 
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "Kafka CDR Backend",
-                .support_level = AST_MODULE_SUPPORT_CORE,
-                .load = load_module,
-                .unload = unload_module,
-                .reload = reload,
-                .load_pri = AST_MODPRI_CDR_DRIVER,
-                .requires = "cdr",
-                );
+    .support_level = AST_MODULE_SUPPORT_EXTENDED,
+    .load = load_module,
+    .unload = unload_module,
+    .reload = reload,
+    .load_pri = AST_MODPRI_CDR_DRIVER,
+    .requires = "cdr,res_kafka",
+);
