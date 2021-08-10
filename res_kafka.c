@@ -13,7 +13,7 @@
 #include <asterisk/module.h>
 #include <asterisk/config.h>
 #include <asterisk/cli.h>
-
+#include "res_kafka.h"
 
 #define CONF_FILE "res_kafka.conf"
 #define DEFAULT_KAFKA_BROKERS "127.0.0.1:9092"
@@ -107,7 +107,7 @@ static int kafka_connect(void) {
     return 0;
 }
 
-static int kafka_produce(const char *topic, const char *buffer) {
+int ast_kafka_produce(const char *topic, const char *buffer) {
     static char *buf;
     buf = ast_strdup(buffer);
     rd_kafka_resp_err_t err;
@@ -212,7 +212,7 @@ static char *handle_cli_kafka_produce(struct ast_cli_entry *e, int cmd, struct a
     topic = a->argv[2];
     message = a->argv[3];
 
-    kafka_produce(topic, message);
+    ast_kafka_produce(topic, message);
 
 }
 
@@ -244,9 +244,10 @@ static int load_module(void) {
     if (load_config()) {
         return AST_MODULE_LOAD_DECLINE;
     }
+    kafka_connect();
     ast_cli_register(&cli_stats);
     ast_cli_register(&cli_produce);
-    kafka_connect();
+
     return AST_MODULE_LOAD_SUCCESS;
 
 }
@@ -266,14 +267,13 @@ static int unload_module(void) {
     rd_kafka_destroy(handle);
     ast_cli_unregister(&cli_stats);
     ast_cli_unregister(&cli_produce);
-
     return 0;
 }
 
-AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER,"Kafka Support",
+AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_GLOBAL_SYMBOLS | AST_MODFLAG_LOAD_ORDER,"Kafka Support",
     .support_level = AST_MODULE_SUPPORT_CORE,
     .load = load_module,
     .unload = unload_module,
-    .load_pri = AST_MODPRI_CDR_DRIVER,
-    .requires = "cdr",
+    .load_pri = AST_MODPRI_APP_DEPEND,
+    .requires = "",
 );

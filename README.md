@@ -35,7 +35,7 @@ module show like kafka
 
 cdr show status
 
-channel originate Local/s@demo application NoOp()
+channel originate Local/s@demo application KafkaProduce some,other
 
 !kafkacat -C -b localhost:9092 -t asterisk_cdr -o -1 -e
 
