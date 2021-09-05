@@ -6,14 +6,14 @@
 #define AST_MODULE "res_kafka"
 
 #include <asterisk.h>
-#include <stdio.h>
 
 #include <librdkafka/rdkafka.h>
-#include <asterisk/cdr.h>
 #include <asterisk/module.h>
 #include <asterisk/config.h>
 #include <asterisk/cli.h>
+#include <asterisk/json.h>
 #include "res_kafka.h"
+
 
 #define CONF_FILE "res_kafka.conf"
 #define DEFAULT_KAFKA_BROKERS "127.0.0.1:9092"
@@ -269,6 +269,7 @@ static int unload_module(void) {
     ast_cli_unregister(&cli_produce);
     return 0;
 }
+
 
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_GLOBAL_SYMBOLS | AST_MODFLAG_LOAD_ORDER, "Kafka Support",
     .support_level = AST_MODULE_SUPPORT_EXTENDED,
