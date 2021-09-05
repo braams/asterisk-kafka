@@ -35,9 +35,18 @@ module show like kafka
 
 cdr show status
 
+cel show status
+
+
 channel originate Local/s@demo application KafkaProduce some,other
+channel originate Local/100@demo application NoOp
+
+
 
 !kafkacat -C -b localhost:9092 -t asterisk_cdr -o -1 -e
+
+
+docker run --rm -it --net=host -v "$(pwd)/clickhouse:/docker-entrypoint-initdb.d" yandex/clickhouse-server
 
 ## TODO
 * CEL

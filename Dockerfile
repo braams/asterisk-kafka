@@ -6,7 +6,19 @@ RUN     apt-get update && \
         echo "tzdata tzdata/Areas select Etc"        | debconf-set-selections && \
         echo "tzdata tzdata/Zones/Etc select UTC"    | debconf-set-selections && \
         echo "Etc/UTC" > /etc/timezone && \
-        apt-get -y install asterisk-dev librdkafka-dev cmake kafkacat
+        apt-get -y install asterisk-dev librdkafka-dev cmake
+        # kafkacat
+
+RUN echo "[general]\nenable=yes\napps=all\nevents=ALL" > /etc/asterisk/cel.conf
+
+RUN echo "[general]\n\
+[demo]\n\
+exten=100,1,NoOp()\n\
+same=n,Set(CDR(foo)=bar)\n\
+same=n,CELGenUserEvent(DemoEvent,demo-extra)\n\
+same=n,Answer()\n\
+" > /etc/asterisk/extensions.conf
+
 
 # ARG     ASTERISK_VERSION=18.3.0
 # RUN     wget -O asterisk.tar.gz http://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz && \
