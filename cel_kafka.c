@@ -117,7 +117,7 @@ static void cel_kafka_put(struct ast_event *event) {
     ast_json_free(cel_buffer);
 }
 
-static int load_config(int reload) {
+static int load_config() {
     const char *cat = NULL;
     struct ast_config *cfg;
     struct ast_flags config_flags = {0};
@@ -126,11 +126,10 @@ static int load_config(int reload) {
     cfg = ast_config_load(conf_file, config_flags);
 
     if (cfg == CONFIG_STATUS_FILEINVALID) {
-        ast_log(LOG_WARNING, "Configuration file '%s' is invalid. %s not activated.\n",
-                conf_file, DESCRIPTION);
+        ast_log(LOG_WARNING, "Configuration file '%s' is invalid.\n", conf_file);
         return -1;
     } else if (!cfg) {
-        ast_log(LOG_WARNING, "Failed to load configuration file. %s not activated.\n", DESCRIPTION);
+        ast_log(LOG_WARNING, "Failed to load configuration file '%s'\n", conf_file);
         return -1;
     }
 
@@ -163,27 +162,36 @@ static int load_config(int reload) {
         }
     }
     ast_config_destroy(cfg);
+
+    if (enablecel) {
+        ast_log(LOG_NOTICE, "Using kafka topic %s", kafka_topic);
+    } else {
+        ast_log(LOG_NOTICE, "%s is not enabled", DESCRIPTION);
+    }
+
     return 0;
 }
 
 
 static int load_module(void) {
-    if (load_config(0)) {
+    if (load_config()) {
+        ast_log(LOG_WARNING, "%s is not activated.\n", DESCRIPTION);
         return AST_MODULE_LOAD_DECLINE;
-    } else {
-        if (ast_cel_backend_register(name, cel_kafka_put)) {
-            ast_log(LOG_ERROR, "Unable to register %s\n", DESCRIPTION);
-            return AST_MODULE_LOAD_DECLINE;
-        }
     }
+    if (ast_cel_backend_register(DESCRIPTION, cel_kafka_put)) {
+        ast_log(LOG_ERROR, "Unable to register %s\n", DESCRIPTION);
+        return AST_MODULE_LOAD_DECLINE;
+    }
+
     return AST_MODULE_LOAD_SUCCESS;
 }
 
 static int unload_module(void) {
-    if (!ast_cel_backend_unregister(name)) {
-        ast_log(LOG_ERROR, "Unable to unregister %s\n", DESCRIPTION);
-        return -1;
-    }
+    ast_cel_backend_unregister(DESCRIPTION);
+    ast_free(kafka_topic);
+    ast_free(dateformat);
+    ast_free(zone);
+
     return 0;
 }
 

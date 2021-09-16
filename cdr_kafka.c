@@ -52,17 +52,13 @@ static char *zone;
 
 AST_RWLOCK_DEFINE_STATIC(config_lock);
 
-static int load_config(int reload) {
+static int load_config() {
     char *cat = NULL;
     struct ast_config *cfg;
     struct ast_variable *v;
-    struct ast_flags config_flags = {reload ? CONFIG_FLAG_FILEUNCHANGED : 0};
-    int newenablecdr = 0;
+    struct ast_flags config_flags = {0};
 
     cfg = ast_config_load(conf_file, config_flags);
-    if (cfg == CONFIG_STATUS_FILEUNCHANGED) {
-        return 0;
-    }
 
     if (cfg == CONFIG_STATUS_FILEINVALID) {
         ast_log(LOG_ERROR, "Config file '%s' could not be parsed\n", conf_file);
@@ -70,17 +66,8 @@ static int load_config(int reload) {
     }
 
     if (!cfg) {
-        ast_log(LOG_WARNING, "Failed to load configuration file. Module not activated.\n");
-        if (enablecdr) {
-            ast_cdr_backend_suspend(name);
-        }
-        enablecdr = 0;
+        ast_log(LOG_WARNING, "Failed to load configuration file '%s'.", conf_file);
         return -1;
-    }
-
-    if (reload) {
-        ast_rwlock_wrlock(&config_lock);
-        ast_free(kafka_topic);
     }
 
     /* Bootstrap the default configuration */
@@ -94,7 +81,7 @@ static int load_config(int reload) {
             while (v) {
 
                 if (!strcasecmp(v->name, "enabled")) {
-                    newenablecdr = ast_true(v->value);
+                    enablecdr = ast_true(v->value);
                 } else if (!strcasecmp(v->name, "topic")) {
                     ast_free(kafka_topic);
                     kafka_topic = ast_strdup(v->value);
@@ -111,19 +98,13 @@ static int load_config(int reload) {
         }
     }
 
-    if (reload) {
-        ast_rwlock_unlock(&config_lock);
-    }
-
     ast_config_destroy(cfg);
 
-    if (!newenablecdr) {
-        ast_cdr_backend_suspend(name);
-    } else if (newenablecdr) {
-        ast_cdr_backend_unsuspend(name);
+    if (enablecdr) {
         ast_log(LOG_NOTICE, "Using kafka topic %s", kafka_topic);
+    } else {
+        ast_log(LOG_NOTICE, "%s is not enabled", DESCRIPTION);
     }
-    enablecdr = newenablecdr;
 
     return 0;
 }
@@ -250,38 +231,29 @@ static int unload_module(void) {
     if (ast_cdr_unregister(name)) {
         return -1;
     }
-
     ast_free(kafka_topic);
     ast_free(dateformat);
     ast_free(zone);
-
-    ast_log(LOG_NOTICE, "Flushing final messages..\n");
     return 0;
 }
 
 static int load_module(void) {
-    if (ast_cdr_register(name, "Asterisk CDR Kafka Backend", kafka_put)) {
+    if (load_config()) {
         return AST_MODULE_LOAD_DECLINE;
     }
 
-    if (load_config(0)) {
-        ast_cdr_unregister(name);
+    if (ast_cdr_register(name, DESCRIPTION, kafka_put)) {
+        ast_log(LOG_WARNING, "%s is not activated.\n", DESCRIPTION);
         return AST_MODULE_LOAD_DECLINE;
     }
+
     return AST_MODULE_LOAD_SUCCESS;
-}
-
-static int reload(void) {
-    //    return load_config(1);
-    ast_log(LOG_NOTICE, "Reload isn't implemented yet...\n");
-    return -1;
 }
 
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, DESCRIPTION,
     .support_level = AST_MODULE_SUPPORT_EXTENDED,
     .load = load_module,
     .unload = unload_module,
-    .reload = reload,
     .load_pri = AST_MODPRI_CDR_DRIVER,
     .requires = "cdr,res_kafka",
 );
