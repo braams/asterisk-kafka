@@ -1,0 +1,20 @@
+# docker build -t asterisk-centos8 -f Dockerfile.centos8 .
+# docker run --rm -it asterisk-centos8 bash
+
+FROM centos:8
+ARG  ASTERISK_VERSION=16.20.0
+RUN dnf -y install dnf-plugins-core \
+    && dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm \
+    && dnf config-manager --set-enabled powertools \
+    && yum update -y && yum install -y wget librdkafka-devel git cmake
+
+RUN cd /usr/src/ \
+    && wget https://downloads.asterisk.org/pub/telephony/asterisk/releases/asterisk-${ASTERISK_VERSION}.tar.gz \
+    && tar xfz asterisk-${ASTERISK_VERSION}.tar.gz \
+    && cd asterisk-${ASTERISK_VERSION} \
+    && contrib/scripts/install_prereq install \
+    && ./configure \
+    && make menuselect.makeopts \
+    && make \
+    && make install \
+    && make samples
