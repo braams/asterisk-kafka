@@ -1,6 +1,11 @@
-//
-// Created by braams on 09.08.2021.
-//
+/*! \file
+ *
+ * \brief Kafka produce dialplan application
+ *
+ * \author Max Nesterov <braams@braams.ru>
+ *
+ */
+
 #define AST_MODULE_SELF_SYM __internal_app_kafka_self
 #define AST_MODULE "app_kafka"
 

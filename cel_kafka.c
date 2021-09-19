@@ -1,6 +1,10 @@
-//
-// Created by braams on 10.08.2021.
-//
+/*! \file
+ *
+ * \brief Kafka CEL backend
+ *
+ * \author Max Nesterov <braams@braams.ru>
+ *
+ */
 
 #define AST_MODULE_SELF_SYM __internal_cel_kafka_self
 #define AST_MODULE "app_kafka"

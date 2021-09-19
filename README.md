@@ -50,7 +50,6 @@ kafkacat -C -b localhost:9092 -t asterisk_cdr -o -1
 docker run --rm -it --net=host -v "$(pwd)/clickhouse:/docker-entrypoint-initdb.d" yandex/clickhouse-server
 
 ## TODO
-* CEL
 * Extra user fields
 * Extra librdkafka configuration (https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md) 
 * Compression

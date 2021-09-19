@@ -1,17 +1,22 @@
-//
-// Created by braams on 07.08.2021.
-//
+/*! \file
+ *
+ * \brief Kafka connection manager
+ *
+ * \author Max Nesterov <braams@braams.ru>
+ *
+ */
 
 #define AST_MODULE_SELF_SYM __internal_res_kafka_self
 #define AST_MODULE "res_kafka"
 
 #include <asterisk.h>
-
-#include <librdkafka/rdkafka.h>
 #include <asterisk/module.h>
 #include <asterisk/config.h>
 #include <asterisk/cli.h>
 #include <asterisk/json.h>
+#include <asterisk/sched.h>
+#include <librdkafka/rdkafka.h>
+#include <unistd.h>
 #include "res_kafka.h"
 
 
@@ -20,22 +25,21 @@
 
 static const char name[] = "res_kafka";
 
-
+static const int poll_interval_ms = 1000;
 static char *kafka_brokers;
 
 rd_kafka_t *handle;         /* Producer instance handle */
 rd_kafka_conf_t *conf;  /* Temporary configuration object */
 char errstr[512];       /* librdkafka API error reporting buffer */
 static char *json_stats;
+static int enabled;
+static struct ast_sched_context *sched;
 
 static void dr_msg_cb(rd_kafka_t *rk, const rd_kafka_message_t *rkmessage, void *opaque) {
     if (rkmessage->err)
         ast_log(LOG_ERROR, "Message delivery failed: %s\n", rd_kafka_err2str(rkmessage->err));
     else
-        ast_log(LOG_NOTICE, "Message delivered (%zd bytes, partition %"
-    PRId32
-    ")\n",
-            rkmessage->len, rkmessage->partition);
+        ast_log(LOG_DEBUG, "Message delivered (%zd bytes, partition %d)\n", rkmessage->len, rkmessage->partition);
     /* The rkmessage is destroyed automatically by librdkafka */
 }
 
@@ -49,17 +53,19 @@ static void error_cb(rd_kafka_t *rk, int err, const char *reason, void *opaque) 
 
 static int stats_cb(rd_kafka_t *rk, char *json, size_t json_len, void *opaque) {
 //    ast_log(LOG_NOTICE, "%s\n%s\n", rk ? rd_kafka_name(rk) : NULL, json);
-
     struct ast_json *body;
     body = ast_json_load_buf(json, json_len, NULL);
     json_stats = ast_json_dump_string_format(body, AST_JSON_PRETTY);
     ast_json_unref(body);
-
     return 0;
 }
 
-static int kafka_connect(void) {
+static int do_poll(const void *unused) {
+    rd_kafka_poll(handle, 0);
+    return poll_interval_ms;
+}
 
+static int kafka_connect(void) {
     conf = rd_kafka_conf_new();
 
     rd_kafka_conf_set_log_cb(conf, log_cb);
@@ -80,15 +86,7 @@ static int kafka_connect(void) {
         return 1;
     }
 
-
     ast_log(LOG_NOTICE, "rd_kafka_conf_set done\n");
-
-    /* Set the delivery report callback.
-     * This callback will be called once per message to inform
-     * the application if delivery succeeded or failed.
-     * See dr_msg_cb() above.
-     * The callback is only triggered from rd_kafka_poll() and
-     * rd_kafka_flush(). */
 
 
     /*
@@ -108,47 +106,80 @@ static int kafka_connect(void) {
 }
 
 int ast_kafka_produce(const char *topic, const char *buffer) {
-    static char *buf;
-    buf = ast_strdup(buffer);
-    rd_kafka_resp_err_t err;
-    err = rd_kafka_producev(
-            /* Producer handle */
-            handle,
-            /* Topic name */
-            RD_KAFKA_V_TOPIC(topic),
-            /* Make a copy of the payload. */
-            RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-            /* Message value and length */
-            RD_KAFKA_V_VALUE(buf, strlen(buf)),
-            /* Per-Message opaque, provided in
-             * delivery report callback as
-             * msg_opaque. */
-            RD_KAFKA_V_OPAQUE(NULL),
-            /* End sentinel */
-            RD_KAFKA_V_END);
-
-    if (err) {
-        /*
-         * Failed to *enqueue* message for producing.
-         */
-        ast_log(LOG_ERROR, "Failed to produce to topic %s: %s\n", topic, rd_kafka_err2str(err));
-    } else {
-        ast_log(LOG_NOTICE, "Enqueued message (%zd bytes) for topic %s\n", strlen(buf), topic);
+    if (enabled) {
+        static char *buf;
+        buf = ast_strdup(buffer);
+        rd_kafka_resp_err_t err;
+        err = rd_kafka_producev(
+                /* Producer handle */
+                handle,
+                /* Topic name */
+                RD_KAFKA_V_TOPIC(topic),
+                /* Make a copy of the payload. */
+                RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+                /* Message value and length */
+                RD_KAFKA_V_VALUE(buf, strlen(buf)),
+                /* Per-Message opaque, provided in
+                 * delivery report callback as
+                 * msg_opaque. */
+                RD_KAFKA_V_OPAQUE(NULL),
+                /* End sentinel */
+                RD_KAFKA_V_END);
+        if (err) {
+            /*
+             * Failed to *enqueue* message for producing.
+             */
+            ast_log(LOG_ERROR, "Failed to produce to topic %s: %s\n", topic, rd_kafka_err2str(err));
+        } else {
+            ast_log(LOG_DEBUG, "Enqueued message (%zd bytes) for topic %s\n", strlen(buf), topic);
+        }
+        ast_free(buf);
+        /* A producer application should continually serve
+         * the delivery report queue by calling rd_kafka_poll()
+         * at frequent intervals.
+         * Either put the poll call in your main loop, or in a
+         * dedicated thread, or call it after every
+         * rd_kafka_produce() call.
+         * Just make sure that rd_kafka_poll() is still called
+         * during periods where you are not producing any messages
+         * to make sure previously produced messages have their
+         * delivery report callback served (and any other callbacks
+         * you register). */
+        rd_kafka_poll(handle, 0/*non-blocking*/);
     }
-    ast_free(buf);
-    /* A producer application should continually serve
-     * the delivery report queue by calling rd_kafka_poll()
-     * at frequent intervals.
-     * Either put the poll call in your main loop, or in a
-     * dedicated thread, or call it after every
-     * rd_kafka_produce() call.
-     * Just make sure that rd_kafka_poll() is still called
-     * during periods where you are not producing any messages
-     * to make sure previously produced messages have their
-     * delivery report callback served (and any other callbacks
-     * you register). */
-    rd_kafka_poll(handle, 0/*non-blocking*/);
     return 0;
+}
+
+static int start_sched(void) {
+    if (sched) {
+        return 0; /* already started */
+    }
+    if (!(sched = ast_sched_context_create())) {
+        ast_log(LOG_ERROR, "Failed to create scheduler context\n");
+        return -1;
+    }
+
+    if (ast_sched_start_thread(sched)) {
+        ast_sched_context_destroy(sched);
+        sched = NULL;
+        return -1;
+    }
+    if (ast_sched_add_variable(sched, poll_interval_ms, do_poll, NULL, 1) < 0) {
+        ast_log(LOG_ERROR, "Unable to schedule \n");
+        ast_sched_context_destroy(sched);
+        sched = NULL;
+        return -1;
+    }
+    ast_log(LOG_NOTICE, "Poll task started\n");
+    return 0;
+}
+
+static int stop_sched(void) {
+    if (sched) {
+        ast_sched_context_destroy(sched);
+        sched = NULL;
+        ast_log(LOG_NOTICE, "Poll task stopped\n");
+    }
 }
 
 
@@ -166,10 +197,10 @@ static int load_config() {
     }
 
     if (!cfg) {
-        ast_log(LOG_WARNING, "Failed to load configuration file. Module not activated.\n");
+        ast_log(LOG_WARNING, "Failed to load configuration file '%s'\n", CONF_FILE);
         return -1;
     }
-
+    enabled = 1;
     /* Bootstrap the default configuration */
     kafka_brokers = ast_strdup(DEFAULT_KAFKA_BROKERS);
 
@@ -177,13 +208,11 @@ static int load_config() {
         if (!strcasecmp(cat, "general")) {
             v = ast_variable_browse(cfg, cat);
             while (v) {
-
-                if (!strcasecmp(v->name, "brokers")) {
+                if (!strcasecmp(v->name, "brokers") || !strcasecmp(v->name, "bootstrap.servers")) {
                     ast_free(kafka_brokers);
                     kafka_brokers = ast_strdup(v->value);
                 }
                 v = v->next;
-
             }
         }
     }
@@ -245,24 +274,24 @@ static int load_module(void) {
         return AST_MODULE_LOAD_DECLINE;
     }
     kafka_connect();
+    start_sched();
     ast_cli_register(&cli_stats);
     ast_cli_register(&cli_produce);
-
     return AST_MODULE_LOAD_SUCCESS;
-
 }
 
 static int unload_module(void) {
-    ast_free(kafka_brokers);
 
-    ast_log(LOG_NOTICE, "Flushing final messages..\n");
+    ast_log(LOG_NOTICE, "Flushing final messages...\n");
     rd_kafka_flush(handle, 10 * 1000 /* wait for max 10 seconds */);
-
+    ast_log(LOG_NOTICE, "...done\n");
     /* If the output queue is still not empty there is an issue
      * with producing messages to the clusters. */
     if (rd_kafka_outq_len(handle) > 0)
         ast_log(LOG_NOTICE, "%d message(s) were not delivered\n", rd_kafka_outq_len(handle));
 
+    stop_sched();
+    ast_free(kafka_brokers);
     /* Destroy the producer instance */
     rd_kafka_destroy(handle);
     ast_cli_unregister(&cli_stats);

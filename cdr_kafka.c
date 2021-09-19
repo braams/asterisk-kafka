@@ -1,27 +1,10 @@
-/*!
- * \file
- * \brief Kakfka CDR records.
- * This module requires the librdkafka library, avaialble from
- * https://github.com/edenhill/librdkafka
+/*! \file
  *
+ * \brief Kafka CDR backend
  *
  * \author Max Nesterov <braams@braams.ru>
  *
- * \arg See also \ref AstCDR
- *
- * Writes in Kafka broker
- * \ingroup cdr_drivers
  */
-
-/*! \li \ref cdr_kafka.c uses the configuration file \ref cdr_kafka.conf
- * \addtogroup configuration_file Configuration Files
- */
-
-/*!
- * \page cdr_kafka.conf cdr_kafka.conf
- * \verbinclude cdr_kafka.conf.sample
- */
-
 
 #define AST_MODULE_SELF_SYM __internal_cdr_kafka_self
 #define AST_MODULE "cdr_kafka"
